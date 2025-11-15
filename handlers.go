@@ -123,6 +123,13 @@ func PaymentWebhook(c *gin.Context) {
 	payment.Status = data.Status
 	DB.Save(&payment)
 
+	// Update ORDER status also
+	var order Order
+	if err := DB.First(&order, "id = ?", payment.OrderID).Error; err == nil {
+		order.Status = data.Status
+		DB.Save(&order)
+	}
+
 	c.JSON(200, gin.H{"message": "webhook processed"})
 }
 
@@ -133,7 +140,7 @@ func GetOrderStatus(c *gin.Context) {
 
 	// 2. Retrieve the order from the database
 	var order Order
-	// Assuming DB is initialized and points to your GORM connection
+	// Assuming DB is initialized and points to  GORM connection
 	if err := DB.First(&order, "id = ?", orderID).Error; err != nil {
 		// Handle case where order is not found
 		if err == gorm.ErrRecordNotFound {
@@ -152,7 +159,7 @@ func GetOrderStatus(c *gin.Context) {
 		"order_id":   order.ID,
 		"amount":     order.Amount,
 		"currency":   order.Currency,
-		"status":     "SUCCESS",
+		"status":     order.Status,
 		"created_at": order.CreatedAt.Format(time.RFC3339),
 	}
 
