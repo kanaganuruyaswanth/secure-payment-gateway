@@ -10,7 +10,6 @@ import (
 type Config struct {
 	WebhookSecret       string
 	RateLimitPerMinute  int
-	SimulateCallback    bool
 	MerchantCallbackURL string
 }
 
@@ -25,7 +24,7 @@ func LoadConfig() *Config {
 	rateLimitStr := os.Getenv("RATE_LIMIT_PER_MINUTE")
 	rateLimit, _ := strconv.Atoi(rateLimitStr)
 	if rateLimit == 0 {
-		rateLimit = 20
+		rateLimit = 5
 	}
 
 	merchantURL := os.Getenv("MERCHANT_CALLBACK_URL")
