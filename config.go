@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -21,13 +22,11 @@ func LoadConfig() *Config {
 		log.Fatal("WEBHOOK_HMAC_SECRET is required")
 	}
 
-	// rateLimitStr := os.Getenv("RATE_LIMIT_PER_MINUTE")
-	// rateLimit, _ := strconv.Atoi(rateLimitStr)
-	// if rateLimit == 0 {
-	// 	rateLimit = 20
-	// }
-
-	// simulateBank := os.Getenv("SIMULATE_BANK_CALLBACK") == "true"
+	rateLimitStr := os.Getenv("RATE_LIMIT_PER_MINUTE")
+	rateLimit, _ := strconv.Atoi(rateLimitStr)
+	if rateLimit == 0 {
+		rateLimit = 20
+	}
 
 	merchantURL := os.Getenv("MERCHANT_CALLBACK_URL")
 	if merchantURL == "" {
@@ -35,9 +34,8 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		WebhookSecret: secret,
-		// RateLimitPerMinute:  rateLimit,
-		// SimulateCallback:    simulateBank,
+		WebhookSecret:       secret,
+		RateLimitPerMinute:  rateLimit,
 		MerchantCallbackURL: merchantURL,
 	}
 }

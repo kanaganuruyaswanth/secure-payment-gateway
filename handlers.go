@@ -90,8 +90,6 @@ func PaymentWebhook(c *gin.Context) {
 		return
 	}
 
-	log.Printf("WEBHOOK PAYLOAD RAW BODY: %s", string(bodyBytes))
-
 	var data struct {
 		PaymentID string `json:"payment_id"`
 		Status    string `json:"status"`
@@ -119,15 +117,12 @@ func PaymentWebhook(c *gin.Context) {
 		return
 	}
 
-	//------------------------------------------------
 	// FETCH PAYMENT RECORD
-	//------------------------------------------------
 	var payment Payment
 
 	// Check if payment exists
 	if err := DB.First(&payment, "id = ?", data.PaymentID).Error; err != nil {
 
-		// Create placeholder payment so audit + retry still work
 		payment = Payment{
 			ID:        data.PaymentID,
 			Status:    "FAILED",
@@ -141,12 +136,9 @@ func PaymentWebhook(c *gin.Context) {
 		})
 	}
 
-	//------------------------------------------------
 	// UPDATE PAYMENT + ORDER STATUS
-	//------------------------------------------------
 
 	payment.Status = data.Status
-	// order.Status = data.Status
 	DB.Save(&payment)
 
 	var order Order
@@ -165,9 +157,7 @@ func PaymentWebhook(c *gin.Context) {
 		})
 	}
 
-	//------------------------------------------------
-	// MERCHANT CALLBACK RETRY LOGIC
-	//------------------------------------------------
+	// MERCHANT CALLBACK RETRY
 
 	if payment.Status == "SUCCESS" || payment.Status == "FAILED" {
 		merchantPayload := map[string]interface{}{
@@ -182,34 +172,24 @@ func PaymentWebhook(c *gin.Context) {
 		go SendWebhookWithRetry(cfg.MerchantCallbackURL, payloadBytes)
 	}
 
-	//------------------------------------------------
-	// RESPONSE TO BANK
-	//------------------------------------------------
 	c.JSON(200, gin.H{"message": "webhook processed"})
 }
 
 // GetOrderStatus handles GET /api/v1/orders/{order_id}
 func GetOrderStatus(c *gin.Context) {
-	// 1. Get the order_id from the URL path parameter
 	orderID := c.Param("order_id")
 
-	// 2. Retrieve the order from the database
 	var order Order
-	// Assuming DB is initialized and points to  GORM connection
 	if err := DB.First(&order, "id = ?", orderID).Error; err != nil {
-		// Handle case where order is not found
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(404, gin.H{"error": "Order not found"})
 			return
 		}
-		// Handle other database errors
 		log.Printf("DB error fetching order %s: %v", orderID, err)
 		c.JSON(500, gin.H{"error": "Internal server error"})
 		return
 	}
 
-	// 3. Construct the response
-	// We only want to return relevant status information
 	response := gin.H{
 		"order_id":   order.ID,
 		"amount":     order.Amount,
@@ -218,6 +198,5 @@ func GetOrderStatus(c *gin.Context) {
 		"created_at": order.CreatedAt.Format(time.RFC3339),
 	}
 
-	// 4. Return 200 OK with the order details
 	c.JSON(200, response)
 }
