@@ -21,6 +21,8 @@ func main() {
 
 	r := gin.Default()
 
+	r.Use(RateLimit(cfg.RateLimitPerMinute))
+
 	// POST routes should have Idempotency Middleware
 	post := r.Group("/")
 	post.Use(IdempotencyMiddleware())

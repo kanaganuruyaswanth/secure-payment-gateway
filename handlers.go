@@ -35,6 +35,7 @@ func CreateOrder(c *gin.Context) {
 	}
 
 	DB.Create(&order)
+	CreateAuditLog("order", order.ID, "ORDER_CREATED", order)
 	c.JSON(200, order)
 }
 
@@ -69,16 +70,19 @@ func InitiatePayment(c *gin.Context) {
 		payment.VANumber = "9001" + time.Now().Format("150405")
 	}
 	if req.Method == "QRIS" {
+		payment.BankCode = req.BankCode
 		payment.QRPayload = "000201010212" + uuid.NewString()
 	}
 
 	DB.Create(&payment)
+	CreateAuditLog("payment", payment.ID, "PAYMENT_INITIATED", payment)
 	c.JSON(200, payment)
 }
 
 // ------------------- WEBHOOK -------------------
 func PaymentWebhook(c *gin.Context) {
-	log.Println("--- STARTING WEBHOOK PROCESSING ---") // New line
+	log.Println("--- STARTING WEBHOOK PROCESSING ---")
+
 	bodyBytes, err := c.GetRawData()
 	if err != nil {
 		log.Printf("ERROR getting raw data: %v", err)
@@ -86,7 +90,6 @@ func PaymentWebhook(c *gin.Context) {
 		return
 	}
 
-	// This logs the exact string used to generate the signature in GenerateHMAC.
 	log.Printf("WEBHOOK PAYLOAD RAW BODY: %s", string(bodyBytes))
 
 	var data struct {
@@ -101,35 +104,87 @@ func PaymentWebhook(c *gin.Context) {
 		return
 	}
 
-	// Timestamp Check
+	// Timestamp validation
 	if !IsTimestampValid(data.Timestamp) {
 		c.JSON(400, gin.H{"error": "replay attack blocked"})
 		return
 	}
 
-	// HMAC Check
+	// HMAC validation
 	expected := GenerateHMAC(cfg.WebhookSecret, string(bodyBytes))
-	if c.GetHeader("X-Signature") != expected {
+	received := c.GetHeader("X-Signature")
+
+	if received != expected {
 		c.JSON(401, gin.H{"error": "invalid signature"})
 		return
 	}
 
+	//------------------------------------------------
+	// FETCH PAYMENT RECORD
+	//------------------------------------------------
 	var payment Payment
+
+	// Check if payment exists
 	if err := DB.First(&payment, "id = ?", data.PaymentID).Error; err != nil {
-		c.JSON(404, gin.H{"error": "payment not found"})
-		return
+
+		// Create placeholder payment so audit + retry still work
+		payment = Payment{
+			ID:        data.PaymentID,
+			Status:    "FAILED",
+			CreatedAt: time.Now(),
+		}
+
+		DB.Create(&payment)
+
+		CreateAuditLog("payment", payment.ID, "PAYMENT_FAILED", map[string]string{
+			"reason": "payment id not found in database",
+		})
 	}
 
+	//------------------------------------------------
+	// UPDATE PAYMENT + ORDER STATUS
+	//------------------------------------------------
+
 	payment.Status = data.Status
+	// order.Status = data.Status
 	DB.Save(&payment)
 
-	// Update ORDER status also
 	var order Order
 	if err := DB.First(&order, "id = ?", payment.OrderID).Error; err == nil {
-		order.Status = data.Status
+		order.Status = payment.Status
 		DB.Save(&order)
 	}
 
+	CreateAuditLog("payment", payment.ID, "PAYMENT_SUCCESS", map[string]string{
+		"new_status": payment.Status,
+	})
+
+	if order.ID != "" {
+		CreateAuditLog("order", order.ID, "ORDER_SUCCESS", map[string]string{
+			"new_status": order.Status,
+		})
+	}
+
+	//------------------------------------------------
+	// MERCHANT CALLBACK RETRY LOGIC
+	//------------------------------------------------
+
+	if payment.Status == "SUCCESS" || payment.Status == "FAILED" {
+		merchantPayload := map[string]interface{}{
+			"order_id":   order.ID,
+			"payment_id": payment.ID,
+			"status":     payment.Status,
+			"timestamp":  time.Now().Unix(),
+		}
+
+		payloadBytes, _ := json.Marshal(merchantPayload)
+
+		go SendWebhookWithRetry(cfg.MerchantCallbackURL, payloadBytes)
+	}
+
+	//------------------------------------------------
+	// RESPONSE TO BANK
+	//------------------------------------------------
 	c.JSON(200, gin.H{"message": "webhook processed"})
 }
 

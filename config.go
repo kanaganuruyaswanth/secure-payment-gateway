@@ -7,9 +7,10 @@ import (
 )
 
 type Config struct {
-	WebhookSecret      string
-	RateLimitPerMinute int
-	SimulateCallback   bool
+	WebhookSecret       string
+	RateLimitPerMinute  int
+	SimulateCallback    bool
+	MerchantCallbackURL string
 }
 
 func LoadConfig() *Config {
@@ -20,8 +21,23 @@ func LoadConfig() *Config {
 		log.Fatal("WEBHOOK_HMAC_SECRET is required")
 	}
 
-	return &Config{
-		WebhookSecret: secret,
+	// rateLimitStr := os.Getenv("RATE_LIMIT_PER_MINUTE")
+	// rateLimit, _ := strconv.Atoi(rateLimitStr)
+	// if rateLimit == 0 {
+	// 	rateLimit = 20
+	// }
+
+	// simulateBank := os.Getenv("SIMULATE_BANK_CALLBACK") == "true"
+
+	merchantURL := os.Getenv("MERCHANT_CALLBACK_URL")
+	if merchantURL == "" {
+		merchantURL = "http://dummy-merchant-server.com/callback"
 	}
 
+	return &Config{
+		WebhookSecret: secret,
+		// RateLimitPerMinute:  rateLimit,
+		// SimulateCallback:    simulateBank,
+		MerchantCallbackURL: merchantURL,
+	}
 }

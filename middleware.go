@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +24,50 @@ func IdempotencyMiddleware() gin.HandlerFunc {
 			return
 		}
 		idempotencyStore.Store(key, true)
+		c.Next()
+	}
+}
+
+var requestCounts = struct {
+	sync.Mutex
+	data map[string][]time.Time
+}{data: make(map[string][]time.Time)}
+
+func RateLimit(limit int) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if limit == 0 { // disabled
+			c.Next()
+			return
+		}
+
+		ip := c.ClientIP()
+		now := time.Now()
+
+		requestCounts.Lock()
+
+		timestamps := requestCounts.data[ip]
+		var filtered []time.Time
+		cutoff := now.Add(-1 * time.Minute)
+
+		for _, t := range timestamps {
+			if t.After(cutoff) {
+				filtered = append(filtered, t)
+			}
+		}
+
+		if len(filtered) >= limit {
+			requestCounts.Unlock()
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error": "rate limit exceeded",
+			})
+			c.Abort()
+			return
+		}
+
+		filtered = append(filtered, now)
+		requestCounts.data[ip] = filtered
+		requestCounts.Unlock()
+
 		c.Next()
 	}
 }
